@@ -1,24 +1,4 @@
-const loadDataIntraday = d3.json("/yahoo.json").then(json => {
-  const chartData = json.chart.result[0];
-  const quoteData = chartData.indicators.quote[0];
-  return chartData.timestamp.map((d, i) => ({
-    date: new Date(d * 1000 - 5 * 1000 * 60 * 60),
-    high: quoteData.high[i],
-    low: quoteData.low[i],
-    open: quoteData.open[i],
-    close: quoteData.close[i],
-    volume: quoteData.volume[i]
-  }));
-});
-
-const loadDataEndOfDay = d3.csv("/yahoo.csv", d => ({
-  date: new Date(d.Timestamp * 1000),
-  volume: Number(d.volume),
-  high: Number(d.high),
-  low: Number(d.low),
-  open: Number(d.open),
-  close: Number(d.close)
-}));
+let mergedData = null;
 
 const dateFormat = d3.timeFormat("%a %H:%M%p");
 const priceFormat = d3.format(",.2f");
@@ -31,9 +11,14 @@ const legendData = datum => [
   { name: "Volume", value: priceFormat(datum.volume) }
 ];
 
+// map the volume scale to the price - a cunning way to use the price
+// scale for our volume series!
+const volumeToPriceScale = d3.scaleLinear();
+
 const volumeSeries = fc
   .seriesSvgBar()
   .bandwidth(2)
+  .mainValue(d => volumeToPriceScale(d.volume))
   .crossValue(d => d.date)
   .decorate(sel =>
     sel
@@ -158,6 +143,21 @@ const xTickFilter = d3.timeMinute
   .every(30)
   .filter(d => d.getHours() === 9 && d.getMinutes() === 30);
 
+const pointer = fc.pointer()
+  .on("point", points => {
+    mergedData.crosshair = points.map(({ x }) => {
+      const closestIndex = d3.bisector(d => d.date)
+        .left(mergedData, xScale.invert(x));
+      const closestDatum = mergedData[closestIndex];
+      return {
+        x: xScale(closestDatum.date),
+        y: yScale(closestDatum.high),
+        value: closestDatum
+      };
+    })
+    render();
+  });
+
 const chart = fc
   .chartCartesian(xScale, yScale)
   .yOrient("right")
@@ -193,7 +193,46 @@ const chart = fc
     sel.enter()
       .append("div")
       .classed("border", true);
+
+    sel.select(".plot-area")
+      .call(pointer);
   });
+
+const render = () => {
+  const discontinuities = d3
+    .pairs(mergedData.tradingHoursArray)
+    .map(d => [d[0][1], d[1][0]]);
+
+  xScale.discontinuityProvider(fc.discontinuityRange(...discontinuities));
+
+  // set the domain based on the data
+  const yDomain = yExtent(mergedData);
+  const volumeDomain = volumeExtent(mergedData);
+  chart.xDomain(xExtent(mergedData)).yDomain(yDomain);
+
+  volumeToPriceScale.domain(volumeDomain)
+    .range(yDomain);
+
+  areaSeries.baseValue(d => yDomain[0]);
+
+  // select and render
+  d3.select("#chart-element")
+    .datum(mergedData)
+    .call(chart);
+};
+
+const loadDataIntraday = d3.json("/yahoo.json").then(json => {
+  const chartData = json.chart.result[0];
+  const quoteData = chartData.indicators.quote[0];
+  return chartData.timestamp.map((d, i) => ({
+    date: new Date(d * 1000 - 5 * 1000 * 60 * 60),
+    high: quoteData.high[i],
+    low: quoteData.low[i],
+    open: quoteData.open[i],
+    close: quoteData.close[i],
+    volume: quoteData.volume[i]
+  }));
+});
 
 loadDataIntraday.then(data => {
   data = data
@@ -205,58 +244,12 @@ loadDataIntraday.then(data => {
   const maData = ma(data);
 
   // merge into a single series
-  const mergedData = data.map((d, i) => ({ ma: maData[i], ...d }));
+  mergedData = data.map((d, i) => ({ ma: maData[i], ...d }));
   mergedData.crosshair = [];
 
   // compute the trading hours and use this to create our discontinuous scale
   const tradingHoursArray = tradingHours(data.map(d => d.date));
-
-  const discontinuities = d3
-    .pairs(tradingHoursArray)
-    .map(d => [d[0][1], d[1][0]]);
-
-  xScale.discontinuityProvider(fc.discontinuityRange(...discontinuities));
-
   mergedData.tradingHoursArray = tradingHoursArray;
 
-  // set the domain based on the data
-  const yDomain = yExtent(data);
-  const volumeDomain = volumeExtent(data);
-  chart.xDomain(xExtent(data)).yDomain(yDomain);
-
-  // map the volume scale to the price - a cunning way to use the price
-  // scale for our volume series!
-  const volumeToPriceScale = d3
-    .scaleLinear()
-    .domain(volumeDomain)
-    .range(yDomain);
-  volumeSeries.mainValue(d => volumeToPriceScale(d.volume));
-
-  areaSeries.baseValue(d => yDomain[0]);
-
-  const render = () => {
-    // select and render
-    d3.select("#chart-element")
-      .datum(mergedData)
-      .call(chart);
-
-    const pointer = fc.pointer()
-      .on("point", points => {
-        mergedData.crosshair = points.map(({ x }) => {
-          const closestIndex = d3.bisector(d => d.date)
-            .left(mergedData, xScale.invert(x));
-          const closestDatum = mergedData[closestIndex];
-          return {
-            x: xScale(closestDatum.date),
-            y: yScale(closestDatum.high),
-            value: closestDatum
-          };
-        })
-        render();
-      });
-
-    d3.select("#chart-element .plot-area")
-      .call(pointer);
-  };
   render();
 });
