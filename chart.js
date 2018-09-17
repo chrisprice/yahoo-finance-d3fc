@@ -240,26 +240,23 @@ loadDataIntraday.then(data => {
       .datum(mergedData)
       .call(chart);
 
-    const pointer = fc.pointer().on("point", event => {
-      if (event.length) {
-        const pointerDate = xScale.invert(event[0].x);
-        const close = closest(mergedData, d =>
-          Math.abs(pointerDate.getTime() - d.date.getTime())
-        );
-        mergedData.crosshair = [
-          {
-            x: xScale(close.value.date),
-            y: yScale(close.value.high),
-            value: close.value
-          }
-        ];
-      } else {
-        mergedData.crosshair = [];
-      }
-      render();
-    });
+    const pointer = fc.pointer()
+      .on("point", points => {
+        mergedData.crosshair = points.map(({ x }) => {
+          const closestIndex = d3.bisector(d => d.date)
+            .left(mergedData, xScale.invert(x));
+          const closestDatum = mergedData[closestIndex];
+          return {
+            x: xScale(closestDatum.date),
+            y: yScale(closestDatum.high),
+            value: closestDatum
+          };
+        })
+        render();
+      });
 
-    d3.select("#chart-element .plot-area").call(pointer);
+    d3.select("#chart-element .plot-area")
+      .call(pointer);
   };
   render();
 });
