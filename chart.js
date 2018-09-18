@@ -93,19 +93,12 @@ const multi = fc
     volumeSeries,
     movingAverageSeries,
     lineSeries,
-    chartLegend,
     crosshair,
     verticalAnnotation,
     bands
   ])
   .mapping((data, index, series) => {
-    const lastPoint = data[data.length - 1];
-    const legendValue = data.crosshair.length
-      ? data.crosshair[0].value
-      : lastPoint;
     switch (series[index]) {
-      case chartLegend:
-        return legendData(legendValue);
       case crosshair:
         return data.crosshair;
       case verticalAnnotation:
@@ -193,6 +186,23 @@ const chart = fc
     sel.enter()
       .append("div")
       .classed("border", true);
+
+    sel.enter()
+      .append("d3fc-svg")
+      .style("grid-column", 3)
+      .style("grid-row", 3)
+      .attr("class", "legend")
+      .on('draw', (data, i, nodes) => {
+        const lastPoint = data[data.length - 1];
+        const legendValue = data.crosshair.length
+          ? data.crosshair[0].value
+          : lastPoint;
+
+        d3.select(nodes[i])
+          .select('svg')
+          .datum(legendData(legendValue))
+          .call(chartLegend);
+      });
 
     sel.select(".plot-area")
       .call(pointer);

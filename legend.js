@@ -14,7 +14,5 @@ const legend = () => {
     });
   };
 
-  instance.xScale = () => instance;
-  instance.yScale = () => instance;
   return instance;
 };
